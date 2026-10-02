@@ -41,8 +41,9 @@ module Whisper
 
       def cache
         path = cache_path
+        return path if cache_path.exist?
+
         headers = {}
-        headers["if-modified-since"] = path.mtime.httpdate if path.exist?
         request @uri, headers
         path
       end
@@ -52,17 +53,11 @@ module Whisper
           request = Net::HTTP::Get.new(uri, headers)
           http.request request do |response|
             case response
-            when Net::HTTPNotModified
-              # noop
             when Net::HTTPOK
-              return if !response.key?("last-modified") && cache_path.exist?
-
               download response
             when Net::HTTPRedirection
               request URI(response["location"]), headers
             else
-              return if headers.key?("if-modified-since") # Use cache file
-
               raise "#{response.code} #{response.message}\n#{response.body}"
             end
           end
@@ -182,7 +177,6 @@ module Whisper
       base-q8_0
       small
       small.en
-      small.en-tdrz
       small-q5_1
       small.en-q5_1
       small-q8_0
@@ -205,27 +199,36 @@ module Whisper
     }
 
     %w[
+      small.en-tdrz
+    ].each do |name|
+      @pre_converted_models[name] = URI.new("https://huggingface.co/akashmjn/tinydiarize-whisper.cpp/resolve/main/ggml-#{name}.bin")
+    end
+
+    %w[
       silero-v5.1.2
+      silero-v6.2.0
     ].each do |name|
       @pre_converted_models[name] = URI.new("https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-#{name}.bin")
     end
 
-    @coreml_compiled_models = %w[
-      tiny
-      tiny.en
-      base
-      base.en
-      small
-      small.en
-      medium
-      medium.en
-      large-v1
-      large-v2
-      large-v3
-      large-v3-turbo
-    ].each_with_object({}) do |name, models|
-      models[@pre_converted_models[name]] = ZipURI.new("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-#{name}-encoder.mlmodelc.zip")
+    %w[
+      parakeet-tdt-0.6b-v3-f16
+      parakeet-tdt-0.6b-v3-f32
+      parakeet-tdt-0.6b-v3-q4_0
+      parakeet-tdt-0.6b-v3-q4_k
+      parakeet-tdt-0.6b-v3-q8_0
+    ].each do |name|
+      @pre_converted_models[name] = URI.new("https://huggingface.co/ggml-org/parakeet-GGUF/resolve/main/ggml-#{name}.bin")
     end
+
+    @coreml_compiled_models = @pre_converted_models.each_with_object({}) {|(name, uri), models|
+      next if name.end_with?("-tdrz") || name.start_with?("silero-") || name.start_with?("parakeet-")
+
+      if matched = name.match(/\A(?<name>.*)-q\d_\d\z/)
+        name = matched[:name]
+      end
+      models[uri] = ZipURI.new("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-#{name}-encoder.mlmodelc.zip")
+    }
 
     class << self
       attr_reader :pre_converted_models, :coreml_compiled_models

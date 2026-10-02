@@ -1,13 +1,16 @@
 # whisper.cpp
 
+<div align="center">
+
 ![whisper.cpp](https://user-images.githubusercontent.com/1991296/235238348-05d0f6a4-da44-4900-a1de-d0707e75b763.jpeg)
 
-[![Actions Status](https://github.com/ggml-org/whisper.cpp/workflows/CI/badge.svg)](https://github.com/ggml-org/whisper.cpp/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/ggml-org/whisper.cpp?filter=v*)](https://github.com/ggml-org/whisper.cpp/releases)
+[![Actions Status](https://github.com/ggml-org/whisper.cpp/workflows/CI/badge.svg)](https://github.com/ggml-org/whisper.cpp/actions)
 [![Conan Center](https://shields.io/conan/v/whisper-cpp)](https://conan.io/center/whisper-cpp)
 [![npm](https://img.shields.io/npm/v/whisper.cpp.svg)](https://www.npmjs.com/package/whisper.cpp/)
 
-Stable: [v1.8.1](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.8.1) / [Roadmap](https://github.com/orgs/ggml-org/projects/4/)
+</div>
 
 High-performance inference of [OpenAI's Whisper](https://github.com/openai/whisper) automatic speech recognition (ASR) model:
 
@@ -21,6 +24,8 @@ High-performance inference of [OpenAI's Whisper](https://github.com/openai/whisp
 - [Vulkan support](#vulkan-gpu-support)
 - Support for CPU-only inference
 - [Efficient GPU support for NVIDIA](#nvidia-gpu-support)
+- [AMD ROCm GPU support](#amd-rocm-gpu-support)
+- [AMD Ryzen AI NPU Support](#amd-ryzen-ai-npu-support)
 - [OpenVINO Support](#openvino-support)
 - [Ascend NPU Support](#ascend-npu-support)
 - [Moore Threads GPU Support](#moore-threads-gpu-support)
@@ -267,20 +272,20 @@ This can result in significant speedup in encoder performance. Here are the inst
 
 - Build `whisper.cpp` with OpenVINO support:
 
-  Download OpenVINO package from [release page](https://github.com/openvinotoolkit/openvino/releases). The recommended version to use is [2024.6.0](https://github.com/openvinotoolkit/openvino/releases/tag/2024.6.0). Ready to use Binaries of the required libraries can be found in the [OpenVino Archives](https://storage.openvinotoolkit.org/repositories/openvino/packages/2024.6/)
+  Download OpenVINO package from [release page](https://github.com/openvinotoolkit/openvino/releases). The recommended version to use is [2026.3.0](https://github.com/openvinotoolkit/openvino/releases/tag/2026.3.0). Ready to use Binaries of the required libraries can be found in the [OpenVino Archives](https://storage.openvinotoolkit.org/repositories/openvino/packages/2026.3/)
 
   After downloading & extracting package onto your development system, set up required environment by sourcing setupvars script. For example:
 
   Linux:
 
   ```bash
-  source /path/to/l_openvino_toolkit_ubuntu22_2023.0.0.10926.b4452d56304_x86_64/setupvars.sh
+  source /path/to/openvino_toolkit_ubuntu/setupvars.sh
   ```
 
   Windows (cmd):
 
   ```powershell
-  C:\Path\To\w_openvino_toolkit_windows_2023.0.0.10926.b4452d56304_x86_64\setupvars.bat
+  C:\Path\To\openvino_toolkit_windows\setupvars.bat
   ```
 
   And then build the project using cmake:
@@ -312,6 +317,87 @@ This can result in significant speedup in encoder performance. Here are the inst
 
 For more information about the OpenVINO implementation please refer to PR [#1037](https://github.com/ggml-org/whisper.cpp/pull/1037).
 
+## AMD Ryzen™ AI NPU support
+
+On AMD Ryzen™ AI 300 and 400 Series processors with a dedicated NPU, whisper.cpp can fully offload the Whisper encoder to the NPU via VitisAI, delivering significant speedup over CPU-only inference.
+
+### Prerequisites
+
+Supported Platforms
+
+- **Windows 11**
+- **Linux** (Ubuntu 24.04 LTS, Python 3.12)
+
+Install the XRT runtime and FlexML runtime for your platform:
+
+- **XRT**: provides the NPU kernel driver and `xrt-smi` diagnostic tool — on Windows this is bundled with the NPU driver; on Linux install it separately following the [NPU driver installation guide](https://ryzenai.docs.amd.com/en/latest/linux.html#install-npu-drivers)
+- **FlexML runtime** (`flexmlrt`): VitisAI inference engine used by whisper.cpp — download from the [FlexML runtime releases](https://github.com/lemonade-sdk/whisper.cpp-rocm/releases/tag/deps)
+
+After installing, source the setup scripts in every shell you use to build or run whisper.cpp:
+
+```bash
+# Linux
+source /opt/xilinx/xrt/setup.sh
+source /path/to/flexmlrt/setup.sh
+```
+
+```cmd
+:: Windows
+cd /path/to/flexmlrt && call setup.bat
+```
+
+You can verify the NPU is visible with:
+
+```bash
+xrt-smi examine
+```
+
+### Download models
+
+Download the ggml model and the matching prebuilt VitisAI encoder cache:
+
+```bash
+# Linux / macOS
+sh ./models/download-ggml-model.sh base
+sh ./models/download-vitisai-model.sh base
+```
+
+```cmd
+:: Windows
+.\models\download-ggml-model.cmd base
+.\models\download-vitisai-model.cmd base
+```
+
+Use the same model name with both scripts. To see all available VitisAI encoder caches:
+
+```bash
+sh ./models/download-vitisai-model.sh --list
+```
+
+```cmd
+.\models\download-vitisai-model.cmd --list
+```
+
+The VitisAI script queries the [AMD Ryzen AI Whisper NPU collection on Hugging Face](https://huggingface.co/collections/amd/ryzen-ai-whisper-npu-optimized-onnx-models) and downloads the `.rai` encoder cache as `models/ggml-<model>-encoder-vitisai.rai`.
+
+> Depending on the `.rai` cache, VitisAI may offload the encoder only, or the encoder plus cross-projection layers. whisper.cpp detects this at runtime and logs the selected offload mode during model initialization.
+
+### Build
+
+```bash
+cmake -B build -DWHISPER_VITISAI=1
+cmake --build build -j --config Release
+```
+
+### Run
+
+```bash
+./build/bin/whisper-cli -m models/ggml-base.bin -f samples/jfk.wav
+```
+
+For more information see the [Ryzen AI documentation](https://ryzenai.docs.amd.com/en/latest/).
+
+
 ## NVIDIA GPU support
 
 With NVIDIA cards the processing of the models is done efficiently on the GPU via cuBLAS and custom CUDA kernels.
@@ -340,6 +426,27 @@ cmake -B build -DGGML_VULKAN=1
 cmake --build build -j --config Release
 ```
 
+## AMD ROCm GPU support
+
+With AMD GPUs the processing can be accelerated via HIP/ROCm.
+First, make sure you have installed [ROCm](https://rocm.docs.amd.com/en/latest/).
+
+Now build `whisper.cpp` with HIP support:
+
+```
+cmake -B build -DGGML_HIP=1 -DAMDGPU_TARGETS="gfx1201"
+cmake --build build -j --config Release
+```
+
+Replace `gfx1201` with your GPU architecture. You can find it with:
+
+```
+rocminfo | grep "gfx"
+```
+
+Common architectures: `gfx1100` (RX 7900 XTX), `gfx1101` (RX 7800 XT), `gfx1201` (RX 9070 XT).
+For multiple GPUs with different architectures: `-DAMDGPU_TARGETS="gfx1100;gfx1201"`.
+
 ## BLAS CPU support via OpenBLAS
 
 Encoder processing can be accelerated on the CPU via OpenBLAS.
@@ -362,8 +469,9 @@ First, check if your Ascend NPU device is supported:
 | Ascend NPU                    | Status  |
 |:-----------------------------:|:-------:|
 | Atlas 300T A2                 | Support |
+| Atlas 300I Duo                | Support |
 
-Then, make sure you have installed [`CANN toolkit`](https://www.hiascend.com/en/software/cann/community) . The lasted version of CANN is recommanded.
+Then, make sure you have installed [`CANN toolkit`](https://www.hiascend.com/en/software/cann/community) . The latest version of CANN is recommended.
 
 Now build `whisper.cpp` with CANN support:
 
@@ -402,9 +510,10 @@ cmake -B build -DGGML_MUSA=1 -DMUSA_ARCHITECTURES="21"
 cmake --build build -j --config Release
 ```
 
-## FFmpeg support (Linux only)
+## FFmpeg support (examples only)
 
-If you want to support more audio formats (such as Opus and AAC), you can turn on the `WHISPER_FFMPEG` build flag to enable FFmpeg integration.
+By default, the examples in this repo use the [miniaudio](https://github.com/mackron/miniaudio) library to decode audio files.
+Some of the examples also can use FFmpeg for decoding and broader format support. To enable that, build with `WHISPER_COMMON_FFMPEG`.
 
 First, you need to install required libraries:
 
@@ -419,7 +528,7 @@ sudo dnf install libavcodec-free-devel libavformat-free-devel libavutil-free-dev
 Then you can build the project as follows:
 
 ```bash
-cmake -B build -D WHISPER_FFMPEG=yes
+cmake -B build -D WHISPER_COMMON_FFMPEG=yes
 cmake --build build
 ```
 
@@ -442,11 +551,12 @@ ffmpeg -i samples/jfk.wav jfk.opus
 
 ### Images
 
-We have two Docker images available for this project:
+We have multiple Docker images available for this project:
 
 1. `ghcr.io/ggml-org/whisper.cpp:main`: This image includes the main executable file as well as `curl` and `ffmpeg`. (platforms: `linux/amd64`, `linux/arm64`)
 2. `ghcr.io/ggml-org/whisper.cpp:main-cuda`: Same as `main` but compiled with CUDA support. (platforms: `linux/amd64`)
 3. `ghcr.io/ggml-org/whisper.cpp:main-musa`: Same as `main` but compiled with MUSA support. (platforms: `linux/amd64`)
+4. `ghcr.io/ggml-org/whisper.cpp:main-vulkan`: Same as `main` but compiled with Vulkan support. (platforms: `linux/amd64`)
 
 ### Usage
 
@@ -455,15 +565,27 @@ We have two Docker images available for this project:
 docker run -it --rm \
   -v path/to/models:/models \
   whisper.cpp:main "./models/download-ggml-model.sh base /models"
+
 # transcribe an audio file
 docker run -it --rm \
   -v path/to/models:/models \
   -v path/to/audios:/audios \
   whisper.cpp:main "whisper-cli -m /models/ggml-base.bin -f /audios/jfk.wav"
+
 # transcribe an audio file in samples folder
 docker run -it --rm \
   -v path/to/models:/models \
   whisper.cpp:main "whisper-cli -m /models/ggml-base.bin -f ./samples/jfk.wav"
+
+# run the web server
+docker run -it --rm -p "8080:8080" \
+  -v path/to/models:/models \
+  whisper.cpp:main "whisper-server --host 127.0.0.1 -m /models/ggml-base.bin"
+  
+# run the bench too on the small.en model using 4 threads
+docker run -it --rm \
+  -v path/to/models:/models \
+  whisper.cpp:main "whisper-bench -m /models/ggml-small.en.bin -t 4"
 ```
 
 ## Installing with Conan
@@ -741,7 +863,7 @@ argument to `whisper-cli`. In addition to this option a VAD model is also
 required.
 
 The way this works is that first the audio samples are passed through
-the VAD model which will detect speech segments. Using this information the
+the VAD model which will detect speech segments. Using this information,
 only the speech segments that are detected are extracted from the original audio
 input and passed to whisper for processing. This reduces the amount of audio
 data that needs to be processed by whisper and can significantly speed up the
@@ -755,23 +877,23 @@ written in Python that is fast and accurate.
 
 Models can be downloaded by running the following command on Linux or MacOS:
 ```console
-$ ./models/download-vad-model.sh silero-v5.1.2
-Downloading ggml model silero-v5.1.2 from 'https://huggingface.co/ggml-org/whisper-vad' ...
-ggml-silero-v5.1.2.bin        100%[==============================================>] 864.35K  --.-KB/s    in 0.04s
-Done! Model 'silero-v5.1.2' saved in '/path/models/ggml-silero-v5.1.2.bin'
+$ ./models/download-vad-model.sh silero-v6.2.0
+Downloading ggml model silero-v6.2.0 from 'https://huggingface.co/ggml-org/whisper-vad' ...
+ggml-silero-v6.2.0.bin        100%[==============================================>] 864.35K  --.-KB/s    in 0.04s
+Done! Model 'silero-v6.2.0' saved in '/path/models/ggml-silero-v6.2.0.bin'
 You can now use it like this:
 
-  $ ./build/bin/whisper-cli -vm /path/models/ggml-silero-v5.1.2.bin --vad -f samples/jfk.wav -m models/ggml-base.en.bin
+  $ ./build/bin/whisper-cli -vm /path/models/ggml-silero-v6.2.0.bin --vad -f samples/jfk.wav -m models/ggml-base.en.bin
 
 ```
 And the following command on Windows:
 ```console
-> .\models\download-vad-model.cmd silero-v5.1.2
-Downloading vad model silero-v5.1.2...
-Done! Model silero-v5.1.2 saved in C:\Users\danie\work\ai\whisper.cpp\ggml-silero-v5.1.2.bin
+> .\models\download-vad-model.cmd silero-v6.2.0
+Downloading vad model silero-v6.2.0...
+Done! Model silero-v6.2.0 saved in C:\Users\danie\work\ai\whisper.cpp\ggml-silero-v6.2.0.bin
 You can now use it like this:
 
-C:\path\build\bin\Release\whisper-cli.exe -vm C:\path\ggml-silero-v5.1.2.bin --vad -m models/ggml-base.en.bin -f samples\jfk.wav
+C:\path\build\bin\Release\whisper-cli.exe -vm C:\path\ggml-silero-v6.2.0.bin --vad -m models/ggml-base.en.bin -f samples\jfk.wav
 
 ```
 
@@ -783,7 +905,7 @@ This model can be also be converted manually to ggml using the following command
 $ python3 -m venv venv && source venv/bin/activate
 $ (venv) pip install silero-vad
 $ (venv) $ python models/convert-silero-vad-to-ggml.py --output models/silero.bin
-Saving GGML Silero-VAD model to models/silero-v5.1.2-ggml.bin
+Saving GGML Silero-VAD model to models/silero-v6.2.0-ggml.bin
 ```
 And it can then be used with whisper as follows:
 ```console
@@ -791,7 +913,7 @@ $ ./build/bin/whisper-cli \
    --file ./samples/jfk.wav \
    --model ./models/ggml-base.en.bin \
    --vad \
-   --vad-model ./models/silero-v5.1.2-ggml.bin
+   --vad-model ./models/silero-v6.2.0-ggml.bin
 ```
 
 ### VAD Options

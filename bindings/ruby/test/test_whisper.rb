@@ -1,6 +1,7 @@
 require_relative "helper"
 require "stringio"
 require "etc"
+require "pathname"
 
 # Exists to detect memory-related bug
 Whisper.log_set ->(level, buffer, user_data) {}, nil
@@ -20,6 +21,15 @@ class TestWhisper < TestBase
     }
   end
 
+  def test_whisper_pathname
+    @whisper = Whisper::Context.new("base.en")
+    params  = Whisper::Params.new
+
+    @whisper.transcribe(Pathname(AUDIO), params) {|text|
+      assert_match(/ask not what your country can do for you, ask what you can do for your country/, text)
+    }
+  end
+
   def test_transcribe_non_parallel
     @whisper = Whisper::Context.new("base.en")
     params  = Whisper::Params.new
@@ -33,9 +43,29 @@ class TestWhisper < TestBase
     @whisper = Whisper::Context.new("base.en")
     params  = Whisper::Params.new
 
-    @whisper.transcribe(AUDIO, params, n_processors: 4) {|text|
-      assert_match(/what you can do for your country/i, text)
-    }
+    without_log_callback do
+      @whisper.transcribe(AUDIO, params, n_processors: 4) {|text|
+        assert_match(/what you can do for your country/i, text)
+      }
+    end
+  end
+
+  def test_free
+    whisper = Whisper::Context.new("base.en")
+    whisper.free
+
+    assert_raise RuntimeError do
+      whisper.model_type
+    end
+  end
+
+  private
+
+  def without_log_callback
+    Whisper.log_set nil, nil
+    yield
+  ensure
+    Whisper.log_set ->(level, buffer, user_data) {}, nil
   end
 
   sub_test_case "After transcription" do
@@ -128,6 +158,7 @@ class TestWhisper < TestBase
     }
     Whisper.log_set log_callback, user_data
     Whisper::Context.new("base.en")
+    sleep 0.1 # wait for logs dequeued
 
     assert logs.length > 30
     logs.each do |log|
@@ -147,6 +178,13 @@ class TestWhisper < TestBase
     assert_empty dev.string
   ensure
     $stderr = stderr
+  end
+
+  def test_access_attribute_without_initialization
+    whisper = Whisper::Context.allocate
+    assert_raise do
+      whisper.model_type
+    end
   end
 
   sub_test_case "full" do
@@ -200,9 +238,21 @@ class TestWhisper < TestBase
       assert_match(/ask not what your country can do for you, ask what you can do for your country/, @whisper.each_segment.first.text)
     end
 
+    def test_full_with_memroy_view_gc
+      samples = JFKReader.new(AUDIO)
+      @whisper.full(@params, samples)
+      GC.start
+      require "fiddle"
+      Fiddle::MemoryView.export samples do |view|
+        assert_equal 176000, view.to_s.unpack("#{view.format}*").length
+      end
+    end
+
     def test_full_parallel
       nprocessors = 2
-      @whisper.full_parallel(@params, @samples, @samples.length, nprocessors)
+      without_log_callback do
+        @whisper.full_parallel(@params, @samples, @samples.length, nprocessors)
+      end
 
       assert_equal nprocessors, @whisper.full_n_segments
       text = @whisper.each_segment.collect(&:text).join
@@ -213,7 +263,9 @@ class TestWhisper < TestBase
     def test_full_parallel_with_memory_view
       nprocessors = 2
       samples = JFKReader.new(AUDIO)
-      @whisper.full_parallel(@params, samples, nil, nprocessors)
+      without_log_callback do
+        @whisper.full_parallel(@params, samples, nil, nprocessors)
+      end
 
       assert_equal nprocessors, @whisper.full_n_segments
       text = @whisper.each_segment.collect(&:text).join
@@ -232,7 +284,9 @@ class TestWhisper < TestBase
 
     def test_full_parallel_without_length
       nprocessors = 2
-      @whisper.full_parallel(@params, @samples, nil, nprocessors)
+      without_log_callback do
+        @whisper.full_parallel(@params, @samples, nil, nprocessors)
+      end
 
       assert_equal nprocessors, @whisper.full_n_segments
       text = @whisper.each_segment.collect(&:text).join
